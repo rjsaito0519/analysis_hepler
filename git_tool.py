@@ -7,6 +7,7 @@ import subprocess
 import filecmp
 import difflib
 import json
+import shutil
 from pathlib import Path
 
 # --- 色の定義 ---
@@ -377,13 +378,13 @@ def show_file_diff(file_pro, file_dev):
         for line in diff:
             has_diff = True
             if line.startswith('+'):
-                print_colored(line, Colors.GREEN)
+                print_colored(line, Colors.GREEN, end='')
             elif line.startswith('-'):
-                print_colored(line, Colors.RED)
+                print_colored(line, Colors.RED, end='')
             elif line.startswith('@'):
-                print_colored(line, Colors.CYAN)
+                print_colored(line, Colors.CYAN, end='')
             else:
-                print(line)
+                print(line, end='')
         
         if not has_diff:
             print_colored("※ 差分はありません（バイナリ等の可能性あり）", Colors.YELLOW)
