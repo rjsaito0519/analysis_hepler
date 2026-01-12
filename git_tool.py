@@ -66,52 +66,64 @@ def show_git_diff(filepath):
         print_colored(f"diffの表示に失敗しました: {e}", Colors.RED)
 
 def run_status_check():
-    print_header("Git ステータス確認")
     changes = get_git_status()
     if changes is None:
         return
     
     if not changes:
+        print_header("Git ステータス確認")
         print_colored("変更されたファイルはありません。Cleanな状態です！", Colors.GREEN, bold=True)
         return
 
-    print_colored(f"合計 {len(changes)} 個のファイルに変更があります:\n", Colors.YELLOW)
-
     width = len(str(len(changes)))
 
-    # 変更一覧を表示
-    for i, item in enumerate(changes):
-        stat = item['status']
-        path = item['path']
+    def print_menu(message=None):
+        # 画面をクリア (Windows/Mac/Linux対応)
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("Git ステータス確認")
         
-        # ステータスの日本語化と色付け
-        status_str = stat
-        color = Colors.WHITE
-        desc = ""
-        
-        if 'M' in stat:
-            color = Colors.YELLOW
-            desc = "変更 (Modified)"
-        elif 'A' in stat:
-            color = Colors.GREEN
-            desc = "追加 (Added)"
-        elif 'D' in stat:
-            color = Colors.RED
-            desc = "削除 (Deleted)"
-        elif '??' in stat:
-            color = Colors.BLUE
-            desc = "未追跡 (Untracked)"
-            
-        print(f"[{i+1:>{width}}] ", end="")
-        print_colored(f"{stat:2} : {path}", color, bold=True, end="")
-        print(f"  <= {desc}")
+        if message:
+            print_colored(message, Colors.RED, bold=True)
+            print("-" * 60)
 
-    print("\n" + "-" * 60)
-    print("操作を選択してください:")
-    print("  [番号]   : そのファイルの差分(diff)を見る")
-    print("  [q]      : 終了")
-    print("  [enter]  : 再表示")
-    
+        print_colored(f"合計 {len(changes)} 個のファイルに変更があります:\n", Colors.YELLOW)
+
+        # 変更一覧を表示
+        for i, item in enumerate(changes):
+            stat = item['status']
+            path = item['path']
+            
+            # ステータスの日本語化と色付け
+            status_str = stat
+            color = Colors.WHITE
+            desc = ""
+            
+            if 'M' in stat:
+                color = Colors.YELLOW
+                desc = "変更 (Modified)"
+            elif 'A' in stat:
+                color = Colors.GREEN
+                desc = "追加 (Added)"
+            elif 'D' in stat:
+                color = Colors.RED
+                desc = "削除 (Deleted)"
+            elif '??' in stat:
+                color = Colors.BLUE
+                desc = "未追跡 (Untracked)"
+                
+            print(f"[{i+1:>{width}}] ", end="")
+            print_colored(f"{stat:2} : {path}", color, bold=True, end="")
+            print(f"  <= {desc}")
+
+        print("\n" + "-" * 60)
+        print("操作を選択してください:")
+        print("  [番号]   : そのファイルの差分(diff)を見る")
+        print("  [q]      : 終了")
+        print("  [enter]  : 画面クリア＆リスト再表示")
+
+    # 初回表示
+    print_menu()
+
     while True:
         try:
             choice = input("\nどうしますか？ >> ").strip()
@@ -121,7 +133,10 @@ def run_status_check():
 
         if choice.lower() == 'q':
             break
+        
+        # Enterのみ -> 再描画
         if choice == '':
+            print_menu()
             continue
         
         if choice.isdigit():
@@ -138,10 +153,11 @@ def run_status_check():
                         print_colored(f"読み込み失敗: {e}", Colors.RED)
                 else:
                     show_git_diff(target_file)
+                # Diff表示後はリストを再表示せず、そのままプロンプト待ちにする（Diffを見たいから）
             else:
-                print_colored("無効な番号です。", Colors.RED)
+                print_menu("無効な番号です。")
         else:
-            print_colored("無効な入力です。", Colors.RED)
+            print_menu("無効な入力です。")
 
 # --- Directory Compare Tool ---
 
