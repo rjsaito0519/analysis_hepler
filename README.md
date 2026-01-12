@@ -36,10 +36,35 @@ python3 git_tool.py compare --pro /path/to/e72 --dev /path/to/e72_undev
 *   **DEV ONLY**: New files in dev.
 *   **MODIFIED**: Files with content differences (view diffs instantly).
 
-## :floppy_disk: Installation
 
-Simply drop `git_tool.py` into your path or clone this repository to your server.
+## :floppy_disk: Setup
+
+Clone this repository to a central location on your server (e.g., your home directory).
 
 ```bash
-chmod +x git_tool.py
+cd ~
+git clone https://github.com/rjsaito0519/analysis_hepler.git
+```
+
+### Option 1: Symlink the tool (Recommended)
+
+Create a symbolic link in your analysis directory to run the tool easily.
+
+```bash
+cd /path/to/your/analysis/dir
+ln -s ~/analysis_hepler/git_tool.py git_tool
+```
+
+Now you can simply run:
+
+```bash
+./git_tool check
+```
+
+### Option 2: Add to PATH
+
+If you want to use it everywhere without creating links:
+
+```bash
+export PATH=$PATH:~/analysis_hepler
 ```
