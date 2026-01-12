@@ -1,0 +1,17 @@
+{
+    "compare": {
+        "pro_dir": "/home/had/sryuta/analyzer/JPARC2025E72",
+        "dev_dir": "/home/had/sryuta/analyzer/JPARC2025E72_undev",
+        "ignore_names": [
+            "__pycache__",
+            ".git",
+            ".DS_Store",
+            "node_modules",
+            "venv",
+            ".idea",
+            ".vscode",
+            "logs",
+            "tmp"
+        ]
+    }
+}

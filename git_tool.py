@@ -6,6 +6,7 @@ import argparse
 import subprocess
 import filecmp
 import difflib
+import json
 from pathlib import Path
 
 # --- 色の定義 ---
@@ -31,14 +32,119 @@ def print_header(title):
     print_colored(f"  {title}", Colors.CYAN, bold=True)
     print("=" * 60)
 
+# --- Config ---
+CONFIG_FILE = "git_tool_config.json"
+
+def load_config():
+    """設定ファイルを読み込む。なければNoneを返す"""
+    # 1. カレントディレクトリ
+    config_path = Path(CONFIG_FILE)
+    if not config_path.exists():
+        # 2. スクリプトと同じディレクトリ
+        script_dir = Path(__file__).parent.resolve()
+        config_path = script_dir / CONFIG_FILE
+    
+    if config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print_colored(f"設定ファイルの読み込みに失敗: {e}", Colors.RED)
+    return None
+
+def create_default_config():
+    """デフォルトの設定ファイルを作成する"""
+    default_config = {
+        "compare": {
+            "pro_dir": "/path/to/production/src",
+            "dev_dir": "/path/to/development/src",
+            "ignore_names": ["__pycache__", ".git", ".DS_Store", "node_modules", "venv"]
+        }
+    }
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(default_config, f, indent=4, ensure_ascii=False)
+        print_colored(f"設定ファイルを作成しました: {Path(CONFIG_FILE).resolve()}", Colors.GREEN)
+        print("内容を編集して利用してください。")
+    except Exception as e:
+        print_colored(f"設定ファイルの作成に失敗: {e}", Colors.RED)
+
+
 # --- Git Status Wrapper ---
+
+def get_git_root(path=None):
+    """指定されたパス（またはカレント）のGitルートディレクトリを取得"""
+    cmd = ["git", "rev-parse", "--show-toplevel"]
+    if path:
+        cmd = ["git", "-C", str(path), "rev-parse", "--show-toplevel"]
+    
+    try:
+        output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8").strip()
+        return Path(output)
+    except subprocess.CalledProcessError:
+        return None
+
+def add_to_gitignore(git_root, target_rel_path):
+    """対話的に.gitignoreに追記する"""
+    gitignore_path = git_root / ".gitignore"
+    
+    print_header("無視リスト(.gitignore)への追加")
+    print(f"対象ファイル: {target_rel_path}")
+    print(f"設定ファイル: {gitignore_path}")
+    
+    # 提案オプション作成
+    path_obj = Path(target_rel_path)
+    options = []
+    
+    # 1. そのファイルそのもの
+    options.append(str(target_rel_path).replace(os.sep, '/'))
+    
+    # 2. 拡張子で無視
+    if path_obj.suffix:
+        options.append(f"*{path_obj.suffix}")
+        
+    # 3. 親ディレクトリで無視 (ルート直下でなければ)
+    parent = path_obj.parent
+    if parent != Path('.'):
+        options.append(f"{str(parent).replace(os.sep, '/')}/")
+        
+    print("\nどのように無視しますか？:")
+    for i, opt in enumerate(options):
+        print(f"  [{i+1}] {opt}")
+    print("  [c] キャンセル")
+    
+    while True:
+        choice = input("選択 >> ").strip().lower()
+        if choice == 'c':
+            return False
+            
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(options):
+                pattern = options[idx]
+                break
+                
+    # 書き込み
+    try:
+        # 既に存在するかチェック
+        if gitignore_path.exists():
+            with open(gitignore_path, 'r', encoding='utf-8') as f:
+                if pattern in f.read():
+                    print_colored("既に.gitignoreに含まれています。", Colors.YELLOW)
+                    return True
+                    
+        with open(gitignore_path, 'a', encoding='utf-8') as f:
+            f.write(f"\n{pattern}\n")
+            print_colored(f"'{pattern}' を .gitignore に追加しました。", Colors.GREEN)
+        return True
+    except Exception as e:
+        print_colored(f"書き込みエラー: {e}", Colors.RED)
+        return False
 
 def get_git_status():
     """git status --porcelain の結果を取得してパースする"""
-    try:
-        # git rootを探す
-        subprocess.check_output(["git", "rev-parse", "--show-toplevel"], stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError:
+    git_root = get_git_root()
+    if not git_root:
         print_colored("エラー: ここはGitリポジトリではないようです。", Colors.RED)
         return None
 
@@ -118,6 +224,7 @@ def run_status_check():
         print("\n" + "-" * 60)
         print("操作を選択してください:")
         print("  [番号]   : そのファイルの差分(diff)を見る")
+        print("  [i 番号] : そのファイルを .gitignore に追加する")
         print("  [q]      : 終了")
         print("  [enter]  : 画面クリア＆リスト再表示")
 
@@ -139,6 +246,33 @@ def run_status_check():
             print_menu()
             continue
         
+        # ignore コマンドの処理 (i 1, i1 など)
+        if choice.lower().startswith('i'):
+            try:
+                target_idx_str = choice[1:].strip()
+                if not target_idx_str:
+                    print_menu("番号を指定してください (例: i 1)")
+                    continue
+                    
+                idx = int(target_idx_str) - 1
+                if 0 <= idx < len(changes):
+                    target_file = changes[idx]['path']
+                    # Gitルート取得
+                    git_root = get_git_root()
+                    if git_root and add_to_gitignore(git_root, target_file):
+                        # 成功したらリストを更新して再表示
+                        input("\n続行するにはEnterを押してください...")
+                        # 変更を反映するために再取得
+                        changes = get_git_status() or [] 
+                        print_menu("無視リストを更新しました。")
+                    else:
+                        print_menu("キャンセルしました。")
+                else:
+                    print_menu("無効な番号です。")
+            except ValueError:
+                print_menu("無効な入力です。")
+            continue
+
         if choice.isdigit():
             idx = int(choice) - 1
             if 0 <= idx < len(changes):
@@ -161,14 +295,18 @@ def run_status_check():
 
 # --- Directory Compare Tool ---
 
-def get_all_files(directory):
+def get_all_files(directory, ignore_names=None):
     """ディレクトリ以下の全ファイルを再帰的に取得（相対パス）
     gitリポジトリの場合は .gitignore や .git/info/exclude を考慮する
+    ignore_names: 無視するファイル/ディレクトリ名のリスト
     """
     file_list = set()
     root_path = Path(directory)
     if not root_path.exists():
         return file_list
+
+    if ignore_names is None:
+        ignore_names = []
         
     # 方法1: git ls-files を試みる
     try:
@@ -179,8 +317,15 @@ def get_all_files(directory):
         output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode('utf-8')
         
         for line in output.splitlines():
-            if line.strip():
-                file_list.add(line.strip())
+            filepath = line.strip()
+            if not filepath: continue
+            
+            # ignore_names によるフィルタリング
+            path_parts = Path(filepath).parts
+            if any(name in path_parts for name in ignore_names):
+                continue
+                
+            file_list.add(filepath)
         
         return file_list
         
@@ -195,10 +340,14 @@ def get_all_files(directory):
             rel_path_obj = p.relative_to(root_path)
             parts = rel_path_obj.parts
             
-            # 除外リスト
+            # 基本的な除外
             if '.git' in parts or '__pycache__' in parts:
                 continue
             if p.name == '.DS_Store':
+                continue
+            
+            # ignore_names によるフィルタリング
+            if any(name in parts for name in ignore_names):
                 continue
                 
             file_list.add(str(rel_path_obj))
@@ -242,11 +391,10 @@ def show_file_diff(file_pro, file_dev):
     except Exception as e:
         print_colored(f"比較中にエラーが発生しました: {e}", Colors.RED)
 
-def run_compare(pro_dir, dev_dir):
-    print_header("ディレクトリ比較ツール")
-    print_colored(f"PRO (Main/Stable) : {pro_dir}", Colors.CYAN)
-    print_colored(f"DEV (Develop)     : {dev_dir}", Colors.MAGENTA)
-    
+def run_compare(pro_dir, dev_dir, ignore_names=None):
+    if ignore_names is None:
+        ignore_names = []
+        
     pro_path = Path(pro_dir)
     dev_path = Path(dev_dir)
     
@@ -257,11 +405,13 @@ def run_compare(pro_dir, dev_dir):
         print_colored(f"エラー: DEVディレクトリが見つかりません: {dev_dir}", Colors.RED)
         return
 
-    print("\nファイルをスキャン中...", end="", flush=True)
-    pro_files = get_all_files(pro_path)
-    dev_files = get_all_files(dev_path)
-    print("完了\n")
-
+    print_colored("ファイルをスキャン中...", Colors.CYAN)
+    if ignore_names:
+        print(f"無視する名前: {', '.join(ignore_names)}")
+        
+    pro_files = get_all_files(pro_path, ignore_names)
+    dev_files = get_all_files(dev_path, ignore_names)
+    
     all_files = sorted(list(pro_files | dev_files))
     
     common_files = []
@@ -329,6 +479,7 @@ def run_compare(pro_dir, dev_dir):
         print("\n" + "-" * 60)
         print("操作を選択してください:")
         print("  [番号]   : ファイルの差分/中身を見る")
+        print("  [i 番号] : DEV側の .gitignore に追加する")
         print("  [q]      : 終了")
         print("  [enter]  : 画面クリア＆リスト再表示")
 
@@ -349,6 +500,36 @@ def run_compare(pro_dir, dev_dir):
         # Enterのみ -> 再描画
         if choice == '':
             print_menu()
+            continue
+        
+        # ignore コマンドの処理 (i 1, i1 など)
+        if choice.lower().startswith('i'):
+            try:
+                target_idx_str = choice[1:].strip()
+                if not target_idx_str:
+                    print_menu("番号を指定してください (例: i 1)")
+                    continue
+                    
+                idx = int(target_idx_str) - 1
+                if 0 <= idx < len(target_list):
+                    _, filepath, _, _ = target_list[idx]
+                    # DEV側のGitルート取得を試みる
+                    git_root = get_git_root(dev_path)
+                    if git_root:
+                        if add_to_gitignore(git_root, filepath):
+                            input("\n続行するにはEnterを押してください...")
+                            # 再スキャン
+                            print("\n変更を反映するために再スキャンします...")
+                            run_compare(pro_dir, dev_dir, ignore_names)
+                            return 
+                        else:
+                            print_menu("キャンセルしました。")
+                    else:
+                        print_menu("DEVディレクトリはGitリポジトリではないようです。")
+                else:
+                    print_menu("無効な番号です。")
+            except ValueError:
+                print_menu("無効な入力です。")
             continue
             
         if choice.isdigit():
@@ -381,20 +562,50 @@ def main():
     parser = argparse.ArgumentParser(description='Gitワークフロー支援ツール')
     subparsers = parser.add_subparsers(dest='command', help='サブコマンド')
 
+    # init command
+    parser_init = subparsers.add_parser('init', help='設定ファイル(git_tool_config.json)を作成します')
+
     # check command
     parser_check = subparsers.add_parser('check', help='現在のディレクトリのGit変更を確認します')
 
     # compare command
     parser_compare = subparsers.add_parser('compare', help='2つのディレクトリを比較します')
-    parser_compare.add_argument('--pro', required=True, help='PRO(Stable)ディレクトリのパス')
-    parser_compare.add_argument('--dev', required=True, help='DEV(Development)ディレクトリのパス')
+    parser_compare.add_argument('--pro', help='PRO(Stable)ディレクトリのパス (設定ファイルで指定可能)')
+    parser_compare.add_argument('--dev', help='DEV(Development)ディレクトリのパス (設定ファイルで指定可能)')
 
     args = parser.parse_args()
 
-    if args.command == 'check':
+    if args.command == 'init':
+        create_default_config()
+    
+    elif args.command == 'check':
         run_status_check()
+        
     elif args.command == 'compare':
-        run_compare(args.pro, args.dev)
+        pro_dir = args.pro
+        dev_dir = args.dev
+        ignore_names = []
+
+        # 設定ファイル読み込み
+        config = load_config()
+        if config and 'compare' in config:
+            # 引数がなければ設定ファイルから使用
+            if not pro_dir:
+                pro_dir = config['compare'].get('pro_dir')
+            if not dev_dir:
+                dev_dir = config['compare'].get('dev_dir')
+            
+            # 設定ファイルのignoreリストを追加
+            if 'ignore_names' in config['compare']:
+                ignore_names.extend(config['compare']['ignore_names'])
+
+        if not pro_dir or not dev_dir:
+            print_colored("PROディレクトリまたはDEVディレクトリが指定されていません。", Colors.RED)
+            print("引数(--pro, --dev)で指定するか、'init'コマンドで設定ファイルを作成してください。")
+            return
+
+        run_compare(pro_dir, dev_dir, ignore_names)
+        
     else:
         # デフォルトでhelpを表示
         parser.print_help()
