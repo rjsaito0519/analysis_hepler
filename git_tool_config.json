@@ -5,13 +5,13 @@
         "ignore_names": [
             "__pycache__",
             ".git",
-            ".DS_Store",
-            "node_modules",
-            "venv",
-            ".idea",
-            ".vscode",
-            "logs",
-            "tmp"
+            ".gitignore",
+            ".gitmodules",
+            "Makefile.org",
+            "macro",
+            "param",
+            "runmanager",
+            "submodule"
         ]
     }
 }
