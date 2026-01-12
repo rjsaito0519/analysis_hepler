@@ -162,16 +162,47 @@ def run_status_check():
 # --- Directory Compare Tool ---
 
 def get_all_files(directory):
-    """ディレクトリ以下の全ファイルを再帰的に取得（相対パス）"""
+    """ディレクトリ以下の全ファイルを再帰的に取得（相対パス）
+    gitリポジトリの場合は .gitignore や .git/info/exclude を考慮する
+    """
     file_list = set()
     root_path = Path(directory)
     if not root_path.exists():
         return file_list
         
+    # 方法1: git ls-files を試みる
+    try:
+        # --cached: 管理済ファイル
+        # --others: 未追跡ファイル
+        # --exclude-standard: .gitignore, .git/info/exclude, global config 等のルール適用
+        cmd = ["git", "-C", str(root_path), "ls-files", "--cached", "--others", "--exclude-standard"]
+        output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode('utf-8')
+        
+        for line in output.splitlines():
+            if line.strip():
+                file_list.add(line.strip())
+        
+        return file_list
+        
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Gitリポジトリでない場合やgitコマンドがない場合はフォールバック
+        pass
+
+    # 方法2: 従来のrglob + 簡易フィルタ
     for p in root_path.rglob('*'):
         if p.is_file():
-            # ディレクトリのルートからの相対パス
-            file_list.add(str(p.relative_to(root_path)))
+            # 部分パスを取得してチェック
+            rel_path_obj = p.relative_to(root_path)
+            parts = rel_path_obj.parts
+            
+            # 除外リスト
+            if '.git' in parts or '__pycache__' in parts:
+                continue
+            if p.name == '.DS_Store':
+                continue
+                
+            file_list.add(str(rel_path_obj))
+            
     return file_list
 
 def show_file_diff(file_pro, file_dev):
@@ -254,53 +285,58 @@ def run_compare(pro_dir, dev_dir):
             only_dev.append(f)
 
     # --- サマリー表示 ---
-    print_colored(f"一致したファイル : {len(common_files)}", Colors.GREEN)
-    print_colored(f"PROのみにある    : {len(only_pro)}", Colors.BLUE)
-    print_colored(f"DEVのみにある    : {len(only_dev)}", Colors.BLUE)
-    print_colored(f"内容が異なる     : {len(diff_files)}", Colors.RED, bold=True)
-
+    
     target_list = []
-    # 表示用リストを作成 (ラベル, ファイルパス, 色)
-    # ユーザーが対応すべきは主に「内容が異なる」と「DEVのみ(追加候補)」
-    
-    idx = 1
-    total_count = len(diff_files) + len(only_dev) + len(only_pro)
-    width = len(str(total_count)) if total_count > 0 else 1
-    
+    # 表示用リストを作成 (ラベル, ファイルパス, 色, タイプ)
+    # 事前にリストを作成しておく
     if diff_files:
-        print("\n--- 内容が異なるファイル (要確認) ---")
         for f in diff_files:
-            print(f"[{idx:>{width}}] ", end="")
-            print_colored(f"MODIFIED : {f}", Colors.RED)
-            target_list.append(('diff', f))
-            idx += 1
-
+            target_list.append(('diff', f, Colors.RED, "MODIFIED"))
     if only_dev:
-        print("\n--- DEVのみにあるファイル (新規機能?) ---")
         for f in only_dev:
-            print(f"[{idx:>{width}}] ", end="")
-            print_colored(f"DEV ONLY : {f}", Colors.CYAN)
-            target_list.append(('dev_only', f))
-            idx += 1
-
+            target_list.append(('dev_only', f, Colors.CYAN, "DEV ONLY"))
     if only_pro:
-        print("\n--- PROのみにあるファイル (DEVで削除された?) ---")
         for f in only_pro:
-            print(f"[{idx:>{width}}] ", end="")
-            print_colored(f"PRO ONLY : {f}", Colors.YELLOW)
-            target_list.append(('pro_only', f))
-            idx += 1
+            target_list.append(('pro_only', f, Colors.YELLOW, "PRO ONLY"))
 
+    total_count = len(target_list)
+    width = len(str(total_count)) if total_count > 0 else 1
+
+    def print_menu(message=None):
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print_header("ディレクトリ比較ツール")
+        print_colored(f"PRO (Main/Stable) : {pro_dir}", Colors.CYAN)
+        print_colored(f"DEV (Develop)     : {dev_dir}", Colors.MAGENTA)
+        
+        if message:
+            print_colored(message, Colors.RED, bold=True)
+            print("-" * 60)
+
+        print_colored(f"一致したファイル : {len(common_files)}", Colors.GREEN)
+        print_colored(f"PROのみにある    : {len(only_pro)}", Colors.BLUE)
+        print_colored(f"DEVのみにある    : {len(only_dev)}", Colors.BLUE)
+        print_colored(f"内容が異なる     : {len(diff_files)}", Colors.RED, bold=True)
+
+        if not target_list:
+            print_colored("\n対応が必要な差異は見つかりませんでした！", Colors.GREEN, bold=True)
+            return
+
+        print("\n--- 差異のあるファイル一覧 ---")
+        for i, (type_, f, color, label) in enumerate(target_list):
+            print(f"[{i+1:>{width}}] ", end="")
+            print_colored(f"{label:8} : {f}", color)
+
+        print("\n" + "-" * 60)
+        print("操作を選択してください:")
+        print("  [番号]   : ファイルの差分/中身を見る")
+        print("  [q]      : 終了")
+        print("  [enter]  : 画面クリア＆リスト再表示")
+
+    print_menu()
+    
     if not target_list:
-        print_colored("\n対応が必要な差異は見つかりませんでした！", Colors.GREEN, bold=True)
         return
 
-    # インタラクティブ操作
-    print("\n" + "-" * 60)
-    print("操作を選択してください:")
-    print("  [番号]   : ファイルの差分/中身を見る")
-    print("  [q]      : 終了")
-    
     while True:
         try:
             choice = input("\nどうしますか？ >> ").strip()
@@ -309,13 +345,16 @@ def run_compare(pro_dir, dev_dir):
 
         if choice.lower() == 'q':
             break
+        
+        # Enterのみ -> 再描画
         if choice == '':
+            print_menu()
             continue
             
         if choice.isdigit():
             sel_idx = int(choice) - 1
             if 0 <= sel_idx < len(target_list):
-                type_, filepath = target_list[sel_idx]
+                type_, filepath, _, _ = target_list[sel_idx]
                 
                 if type_ == 'diff':
                     show_file_diff(pro_path / filepath, dev_path / filepath)
@@ -334,9 +373,9 @@ def run_compare(pro_dir, dev_dir):
                     except:
                         print("表示できません")
             else:
-                print_colored("無効な番号です。", Colors.RED)
+                print_menu("無効な番号です。")
         else:
-            print_colored("無効な入力です。", Colors.RED)
+            print_menu("無効な入力です。")
 
 def main():
     parser = argparse.ArgumentParser(description='Gitワークフロー支援ツール')
