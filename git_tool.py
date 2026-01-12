@@ -369,8 +369,7 @@ def show_file_diff(file_pro, file_dev):
             
         diff = difflib.unified_diff(
             f1_lines, f2_lines,
-            fromfile='PRO', tofile='DEV',
-            lineterm=''
+            fromfile='PRO', tofile='DEV'
         )
         
         # diffを見やすく表示
