@@ -77,6 +77,8 @@ def run_status_check():
 
     print_colored(f"合計 {len(changes)} 個のファイルに変更があります:\n", Colors.YELLOW)
 
+    width = len(str(len(changes)))
+
     # 変更一覧を表示
     for i, item in enumerate(changes):
         stat = item['status']
@@ -100,7 +102,7 @@ def run_status_check():
             color = Colors.BLUE
             desc = "未追跡 (Untracked)"
             
-        print(f"[{i+1}] ", end="")
+        print(f"[{i+1:>{width}}] ", end="")
         print_colored(f"{stat:2} : {path}", color, bold=True, end="")
         print(f"  <= {desc}")
 
@@ -246,11 +248,13 @@ def run_compare(pro_dir, dev_dir):
     # ユーザーが対応すべきは主に「内容が異なる」と「DEVのみ(追加候補)」
     
     idx = 1
+    total_count = len(diff_files) + len(only_dev) + len(only_pro)
+    width = len(str(total_count)) if total_count > 0 else 1
     
     if diff_files:
         print("\n--- 内容が異なるファイル (要確認) ---")
         for f in diff_files:
-            print(f"[{idx}] ", end="")
+            print(f"[{idx:>{width}}] ", end="")
             print_colored(f"MODIFIED : {f}", Colors.RED)
             target_list.append(('diff', f))
             idx += 1
@@ -258,7 +262,7 @@ def run_compare(pro_dir, dev_dir):
     if only_dev:
         print("\n--- DEVのみにあるファイル (新規機能?) ---")
         for f in only_dev:
-            print(f"[{idx}] ", end="")
+            print(f"[{idx:>{width}}] ", end="")
             print_colored(f"DEV ONLY : {f}", Colors.CYAN)
             target_list.append(('dev_only', f))
             idx += 1
@@ -266,7 +270,7 @@ def run_compare(pro_dir, dev_dir):
     if only_pro:
         print("\n--- PROのみにあるファイル (DEVで削除された?) ---")
         for f in only_pro:
-            print(f"[{idx}] ", end="")
+            print(f"[{idx:>{width}}] ", end="")
             print_colored(f"PRO ONLY : {f}", Colors.YELLOW)
             target_list.append(('pro_only', f))
             idx += 1
